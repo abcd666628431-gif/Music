@@ -116,10 +116,10 @@
                         <h1 class="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-indigo-700 via-indigo-600 to-rose-600 bg-clip-text text-transparent">
                             KTV STUDIO
                         </h1>
-                        <span id="syncStatusBadge" class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5">
+                        <button id="syncStatusBadge" onclick="window.forcePullCloudState && window.forcePullCloudState()" title="點擊強制重新同步" class="cursor-pointer text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5 hover:bg-emerald-100 transition">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                             同步連線中
-                        </span>
+                        </button>
                     </div>
                     <p class="text-xs text-slate-500 hidden sm:block">主機播放影音・多人即時貼網址點歌與遙控</p>
                 </div>
@@ -206,7 +206,7 @@
                             <p id="collapsedSubTitle" class="text-xs text-indigo-600/80 truncate mt-0.5">點擊右上角「展開影片」可隨時恢復畫面</p>
                         </div>
                     </div>
-                    <button onclick="toggleVideoCollapse()" class="px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-medium shrink-0 transition shadow-2xs">
+                    <button id="expandBannerBtn" onclick="toggleVideoCollapse()" class="px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-medium shrink-0 transition shadow-2xs">
                         展開畫面
                     </button>
                 </div>
@@ -422,7 +422,7 @@
     <!-- Firebase 模組化載入與即時同步邏輯 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, updateDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBJCSMVoYWq_bn-mfxm3KJliVc5FLKVz2I",
@@ -439,14 +439,39 @@
 
         window.isCloudReady = false;
 
-        // 寫入雲端狀態的橋接函式
+        // 寫入完整雲端狀態的橋接函式
         window.pushStateToCloud = async (stateToSave) => {
             if (!window.isCloudReady) return;
             try {
-                await setDoc(roomDocRef, stateToSave);
+                const cleanState = JSON.parse(JSON.stringify(stateToSave));
+                await setDoc(roomDocRef, cleanState);
             } catch (err) {
                 console.error("雲端同步寫入失敗:", err);
-                updateSyncBadge(false, '請檢查 Firestore 權限規則');
+                updateSyncBadge(false, '本地分頁同步模式');
+            }
+        };
+
+        // 僅更新播放時間與長度的輕量函式（避免覆蓋副機剛點的歌單）
+        window.pushProgressToCloud = async (currentTime, duration) => {
+            if (!window.isCloudReady) return;
+            try {
+                await updateDoc(roomDocRef, {
+                    currentTime: currentTime,
+                    duration: duration
+                });
+            } catch (err) {}
+        };
+
+        // 手動強制拉取最新雲端狀態
+        window.forcePullCloudState = async () => {
+            try {
+                const snap = await getDoc(roomDocRef);
+                if (snap.exists()) {
+                    window.applyIncomingState(snap.data(), 'cloud', true);
+                    if (typeof showToast === 'function') showToast('已強制同步最新雲端歌單');
+                }
+            } catch (e) {
+                if (typeof showToast === 'function') showToast('目前使用本地跨分頁同步模式', 'warning');
             }
         };
 
@@ -454,30 +479,30 @@
             const badge = document.getElementById('syncStatusBadge');
             if (!badge) return;
             if (connected) {
-                badge.className = "text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5";
-                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>${customText || '雲端已連線'}`;
+                badge.className = "cursor-pointer text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5 hover:bg-emerald-100 transition";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>${customText || '雲端即時同步中'}`;
             } else {
-                badge.className = "text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1.5";
-                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>${customText || '連線重試中'}`;
+                badge.className = "cursor-pointer text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1.5 hover:bg-amber-100 transition";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>${customText || '本地分頁同步模式'}`;
             }
         }
 
         function initFirebaseSync() {
-            window.isCloudReady = true;
-
             onSnapshot(roomDocRef, (snapshot) => {
-                updateSyncBadge(true, '雲端已連線');
+                window.isCloudReady = true;
+                updateSyncBadge(true, '雲端即時同步中');
                 if (snapshot.exists()) {
                     const cloudData = snapshot.data();
                     if (typeof window.applyIncomingState === 'function') {
-                        window.applyIncomingState(cloudData);
+                        window.applyIncomingState(cloudData, 'cloud');
                     }
                 } else if (window.roomState) {
                     window.pushStateToCloud(window.roomState);
                 }
             }, (error) => {
-                console.error("雲端監聽發生錯誤:", error);
-                updateSyncBadge(false, '請檢查 Firestore 規則');
+                console.error("雲端監聽發生錯誤，啟用跨分頁本地同步備援:", error);
+                window.isCloudReady = false;
+                updateSyncBadge(false, '本地分頁同步模式');
             });
         }
 
@@ -487,10 +512,12 @@
     <!-- YouTube IFrame API 與核心邏輯 -->
     <script>
         /********************************************************************
-         * 1. 全域狀態設計 (與 Firebase Firestore 即時同步)
+         * 1. 全域狀態設計 (Firebase Firestore + BroadcastChannel 雙重即時同步)
          ********************************************************************/
+        const clientId = 'client_' + Math.random().toString(36).substring(2, 9);
         let deviceRole = 'host'; // 'host' (主機播放端) | 'remote' (副機純點歌端)
         let isVideoCollapsed = false; // 是否收起正在播放的影片
+        let hasInitialSync = false; // 是否已完成初次同步對齊
 
         window.roomState = {
             currentSong: null,
@@ -499,22 +526,49 @@
             isPlaying: true,
             volume: 80,
             isMuted: false,
+            currentTime: 0,
+            duration: 0,
             replayNonce: 0,
             seekToSeconds: null,
             seekNonce: 0,
             lastActionToast: null,
-            updatedAt: Date.now()
+            stateVersion: 0,
+            updatedBy: clientId,
+            updatedAt: 0
         };
         let roomState = window.roomState;
+
+        // 跨分頁毫秒級同步備援 (BroadcastChannel & localStorage)
+        const localChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('ktv_studio_sync_channel') : null;
+        if (localChannel) {
+            localChannel.onmessage = (event) => {
+                if (event.data && event.data.updatedBy !== clientId) {
+                    window.applyIncomingState(event.data, 'local');
+                }
+            };
+        }
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'ktv_studio_backup_state' && event.newValue) {
+                try {
+                    const parsed = JSON.parse(event.newValue);
+                    if (parsed && parsed.updatedBy !== clientId) {
+                        window.applyIncomingState(parsed, 'local');
+                    }
+                } catch (e) {}
+            }
+        });
 
         let ytPlayer = null;
         let isPlayerReady = false;
         let loadedVideoId = null;
+        let isTransitioningVideo = false;
         let lastHandledReplayNonce = 0;
         let lastHandledSeekNonce = 0;
         let lastHandledToastTime = 0;
         let isDraggingSeekSlider = false;
         let progressInterval = null;
+        let volumeSyncTimer = null;
+        let lastTimeCloudSync = 0;
 
         /********************************************************************
          * 2. 初始化與載入 YouTube IFrame Player API
@@ -523,6 +577,15 @@
             const savedName = sessionStorage.getItem('ktv_requester_name');
             if (savedName) {
                 document.getElementById('requesterNameInput').value = savedName;
+            }
+
+            // 若本地有備份狀態且雲端尚未載入，先讀取本地狀態
+            const localSaved = localStorage.getItem('ktv_studio_backup_state');
+            if (localSaved && !hasInitialSync) {
+                try {
+                    const parsed = JSON.parse(localSaved);
+                    if (parsed) window.applyIncomingState(parsed, 'local');
+                } catch (e) {}
             }
 
             renderAllUI();
@@ -561,7 +624,6 @@
                 }
             });
 
-            // 確保生成的 iframe 帶有正確的 Referrer Policy 以避免錯誤 153
             const iframeEl = document.getElementById('yt-player');
             if (iframeEl && iframeEl.tagName === 'IFRAME') {
                 iframeEl.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
@@ -580,11 +642,21 @@
             if (event.data === YT.PlayerState.ENDED) {
                 playNextSongFromQueue();
             } else if (event.data === YT.PlayerState.PLAYING) {
+                isTransitioningVideo = false;
+                const dur = ytPlayer.getDuration ? Math.floor(ytPlayer.getDuration() || 0) : 0;
+                let needSync = false;
+                if (dur > 0 && roomState.duration !== dur) {
+                    roomState.duration = dur;
+                    needSync = true;
+                }
                 if (!roomState.isPlaying) {
                     roomState.isPlaying = true;
-                    syncRoomState(null);
+                    needSync = true;
                 }
+                if (needSync) syncRoomState(null);
             } else if (event.data === YT.PlayerState.PAUSED) {
+                // 忽略切換歌曲或跳轉瞬間產生的假性暫停事件
+                if (isTransitioningVideo) return;
                 if (roomState.isPlaying && roomState.currentSong) {
                     roomState.isPlaying = false;
                     syncRoomState(null);
@@ -599,19 +671,23 @@
                 showToast('播放器網域驗證限制（錯誤 153），請嘗試重新整理或於獨立視窗開啟', 'error');
                 return;
             }
-            showToast('該影片無法在外部播放，3 秒後自動跳下一首', 'warning');
+            showToast('該影片無法在外部嵌入播放，3 秒後自動跳下一首', 'warning');
             setTimeout(() => {
-                if (roomState.queue.length > 0) {
+                if (roomState.queue.length > 0 || roomState.currentSong) {
                     playNextSongFromQueue();
                 }
             }, 3000);
         }
 
         /********************************************************************
-         * 3. 同步核心層 (Firebase Firestore 即時雙向同步)
+         * 3. 同步核心層 (Firebase Firestore + BroadcastChannel 即時雙向同步)
          ********************************************************************/
         function syncRoomState(toastMessage = null) {
+            hasInitialSync = true;
+            roomState.stateVersion = (roomState.stateVersion || 0) + 1;
             roomState.updatedAt = Date.now();
+            roomState.updatedBy = clientId;
+
             if (toastMessage) {
                 roomState.lastActionToast = {
                     message: toastMessage,
@@ -621,16 +697,41 @@
                 showToast(toastMessage);
             }
 
+            // 1. 寫入 Firebase 雲端
             if (typeof window.pushStateToCloud === 'function') {
                 window.pushStateToCloud(roomState);
             }
+
+            // 2. 寫入本地跨分頁通道與 LocalStorage 備援
+            try {
+                if (localChannel) localChannel.postMessage(roomState);
+                localStorage.setItem('ktv_studio_backup_state', JSON.stringify(roomState));
+            } catch (e) {}
 
             renderAllUI();
             syncPlayerWithRoomState();
         }
 
-        window.applyIncomingState = function(newState) {
+        window.applyIncomingState = function(newState, source = 'cloud', forceApply = false) {
             if (!newState) return;
+
+            // 若是自己剛發出的舊快照回音，直接忽略避免閃爍；若是其他裝置發出的更新則無條件接收（不受跨裝置系統時鐘誤差影響）
+            if (!forceApply && hasInitialSync && source === 'cloud' && newState.updatedBy === clientId) {
+                if ((newState.stateVersion || 0) < (roomState.stateVersion || 0)) {
+                    return;
+                }
+            }
+
+            // 初次收到遠端狀態時，直接對齊 Nonce 與 Toast 時間戳，避免新開網頁誤觸發舊指令
+            if (!hasInitialSync) {
+                hasInitialSync = true;
+                lastHandledReplayNonce = newState.replayNonce || 0;
+                lastHandledSeekNonce = newState.seekNonce || 0;
+                lastHandledToastTime = (newState.lastActionToast && newState.lastActionToast.timestamp)
+                    ? newState.lastActionToast.timestamp
+                    : Date.now();
+            }
+
             roomState = {
                 ...roomState,
                 ...newState,
@@ -638,6 +739,11 @@
                 history: Array.isArray(newState.history) ? newState.history : []
             };
             window.roomState = roomState;
+
+            // 同步更新本地備份
+            try {
+                localStorage.setItem('ktv_studio_backup_state', JSON.stringify(roomState));
+            } catch (e) {}
 
             if (roomState.lastActionToast && roomState.lastActionToast.timestamp > lastHandledToastTime) {
                 lastHandledToastTime = roomState.lastActionToast.timestamp;
@@ -676,24 +782,34 @@
 
             idleOverlay.classList.add('hidden');
 
+            // 切換新歌曲時加上過渡保護鎖，避免觸發假性 PAUSED
             if (loadedVideoId !== current.videoId) {
                 loadedVideoId = current.videoId;
+                isTransitioningVideo = true;
+                setTimeout(() => { isTransitioningVideo = false; }, 1500);
                 ytPlayer.loadVideoById(current.videoId);
             }
 
+            // 檢查重唱指令
             if (roomState.replayNonce && roomState.replayNonce > lastHandledReplayNonce) {
                 lastHandledReplayNonce = roomState.replayNonce;
+                isTransitioningVideo = true;
+                setTimeout(() => { isTransitioningVideo = false; }, 1000);
                 ytPlayer.seekTo(0, true);
                 ytPlayer.playVideo();
             }
 
+            // 檢查拉動進度條指令 (主機與副機皆可遙控跳轉)
             if (roomState.seekNonce && roomState.seekNonce > lastHandledSeekNonce) {
                 lastHandledSeekNonce = roomState.seekNonce;
                 if (typeof roomState.seekToSeconds === 'number') {
+                    isTransitioningVideo = true;
+                    setTimeout(() => { isTransitioningVideo = false; }, 1000);
                     ytPlayer.seekTo(roomState.seekToSeconds, true);
                 }
             }
 
+            // 同步播放/暫停狀態
             const playerState = ytPlayer.getPlayerState ? ytPlayer.getPlayerState() : -1;
             if (roomState.isPlaying && playerState !== YT.PlayerState.PLAYING && playerState !== YT.PlayerState.BUFFERING) {
                 ytPlayer.playVideo();
@@ -701,6 +817,7 @@
                 ytPlayer.pauseVideo();
             }
 
+            // 同步音量與靜音狀態
             if (roomState.isMuted) {
                 ytPlayer.mute();
             } else {
@@ -713,6 +830,10 @@
          * 5. 收起 / 展開播放中影片 & 主機/副機切換
          ********************************************************************/
         function toggleVideoCollapse() {
+            if (deviceRole === 'remote') {
+                showToast('副機純點歌模式預設隱藏影片，如需觀看畫面請切換至「主機播放端」');
+                return;
+            }
             isVideoCollapsed = !isVideoCollapsed;
             updateVideoCollapseUI();
         }
@@ -722,6 +843,7 @@
             const banner = document.getElementById('collapsedAudioBanner');
             const btnIcon = document.getElementById('toggleVideoIcon');
             const btnText = document.getElementById('toggleVideoText');
+            const expandBannerBtn = document.getElementById('expandBannerBtn');
             const modeHint = document.getElementById('collapsedModeHint');
             const subTitle = document.getElementById('collapsedSubTitle');
 
@@ -736,10 +858,12 @@
 
                 if (deviceRole === 'remote') {
                     modeHint.innerHTML = '<i class="fa-solid fa-mobile-screen-button text-indigo-600"></i><span>副機純點歌模式（本機不發聲，遠端遙控主機）</span>';
-                    subTitle.textContent = '可同步貼網址點歌、插播、切歌或調整主機音量';
+                    subTitle.textContent = '可同步貼網址點歌、插播、切歌、拉動進度或調整主機音量';
+                    if (expandBannerBtn) expandBannerBtn.classList.add('hidden');
                 } else {
                     modeHint.innerHTML = '<i class="fa-solid fa-headphones text-indigo-600"></i><span>已收起影片畫面（背景音樂持續播放中）</span>';
                     subTitle.textContent = '點擊右上角「展開影片」可隨時恢復畫面';
+                    if (expandBannerBtn) expandBannerBtn.classList.remove('hidden');
                 }
             } else {
                 wrapper.classList.remove('video-wrapper-collapsed');
@@ -775,7 +899,7 @@
         function extractYouTubeId(inputUrl) {
             if (!inputUrl) return null;
             const trimmed = inputUrl.trim();
-            const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+            const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts|live)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
             const match = trimmed.match(regex);
             if (match && match[1]) return match[1];
             if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
@@ -838,6 +962,8 @@
             if (!roomState.currentSong) {
                 roomState.currentSong = newSong;
                 roomState.isPlaying = true;
+                roomState.currentTime = 0;
+                roomState.duration = 0;
                 syncRoomState(`${requester} 點播了《${newSong.title}》，立即播放`);
             } else if (prioritize) {
                 roomState.queue.unshift(newSong);
@@ -872,15 +998,15 @@
             addSongByUrl(url, false, title);
         }
 
-        function addDemoSongs() {
+        async function addDemoSongs() {
             const demos = [
                 { url: 'https://www.youtube.com/watch?v=K4DyBUG242c', title: 'Cartoon - On & On (NCS 經典曲目)' },
                 { url: 'https://www.youtube.com/watch?v=bM7SZ5SBzyY', title: 'Alan Walker - Fade' },
                 { url: 'https://www.youtube.com/watch?v=jfKfPfyJRdk', title: 'Lofi Hip Hop Radio - 暖場背景音樂' }
             ];
-            demos.forEach((d, idx) => {
-                setTimeout(() => addSongByUrl(d.url, false, d.title), idx * 250);
-            });
+            for (const d of demos) {
+                await addSongByUrl(d.url, false, d.title);
+            }
         }
 
         /********************************************************************
@@ -894,6 +1020,9 @@
                 });
                 if (roomState.history.length > 30) roomState.history.pop();
             }
+
+            roomState.currentTime = 0;
+            roomState.duration = 0;
 
             if (roomState.queue.length > 0) {
                 const nextSong = roomState.queue.shift();
@@ -949,6 +1078,7 @@
                 return;
             }
             roomState.replayNonce = (roomState.replayNonce || 0) + 1;
+            roomState.currentTime = 0;
             roomState.isPlaying = true;
             const requester = document.getElementById('requesterNameInput').value.trim() || '歌友';
             syncRoomState(`${requester} 按下重唱本首`);
@@ -960,7 +1090,15 @@
             if (numVal > 0 && roomState.isMuted) {
                 roomState.isMuted = false;
             }
-            syncRoomState(null);
+            renderVolumeUI();
+            if (deviceRole === 'host' && isPlayerReady && ytPlayer) {
+                ytPlayer.unMute();
+                ytPlayer.setVolume(roomState.volume);
+            }
+            clearTimeout(volumeSyncTimer);
+            volumeSyncTimer = setTimeout(() => {
+                syncRoomState(null);
+            }, 150);
         }
 
         function adjustVolumeByStep(delta) {
@@ -985,7 +1123,7 @@
         }
 
         /********************************************************************
-         * 8. 進度條更新與拉動跳轉
+         * 8. 進度條更新與拉動跳轉 (支援主機與副機雙向同步，不覆蓋歌單)
          ********************************************************************/
         function formatTime(sec) {
             if (!sec || isNaN(sec) || sec < 0) return '00:00';
@@ -995,31 +1133,66 @@
         }
 
         function updateProgressBarUI() {
-            if (deviceRole !== 'host' || !isPlayerReady || !ytPlayer || !roomState.currentSong) return;
-            if (typeof ytPlayer.getCurrentTime !== 'function') return;
+            if (!roomState.currentSong) return;
 
-            const current = ytPlayer.getCurrentTime() || 0;
-            const duration = ytPlayer.getDuration() || 0;
+            if (deviceRole === 'host' && isPlayerReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                const current = Math.floor(ytPlayer.getCurrentTime() || 0);
+                const duration = Math.floor(ytPlayer.getDuration() || 0);
 
-            document.getElementById('currentTimeText').textContent = formatTime(current);
-            document.getElementById('durationTimeText').textContent = formatTime(duration);
+                roomState.currentTime = current;
+                if (duration > 0) roomState.duration = duration;
 
-            if (!isDraggingSeekSlider && duration > 0) {
-                const percent = Math.min(100, Math.round((current / duration) * 100));
-                document.getElementById('progressSlider').value = percent;
+                document.getElementById('currentTimeText').textContent = formatTime(current);
+                document.getElementById('durationTimeText').textContent = formatTime(duration);
+
+                if (!isDraggingSeekSlider && duration > 0) {
+                    const percent = Math.min(100, Math.round((current / duration) * 100));
+                    document.getElementById('progressSlider').value = percent;
+                }
+
+                // 每 3 秒僅局部更新播放秒數與長度給副機，絕不覆蓋 queue 待播清單
+                const now = Date.now();
+                if (roomState.isPlaying && duration > 0 && now - lastTimeCloudSync > 3000) {
+                    lastTimeCloudSync = now;
+                    if (typeof window.pushProgressToCloud === 'function') {
+                        window.pushProgressToCloud(current, duration);
+                    }
+                    if (localChannel) localChannel.postMessage(roomState);
+                }
+            } else if (deviceRole === 'remote') {
+                // 副機端根據同步的秒數與長度顯示進度
+                const current = roomState.currentTime || 0;
+                const duration = roomState.duration || 0;
+                document.getElementById('currentTimeText').textContent = formatTime(current);
+                document.getElementById('durationTimeText').textContent = formatTime(duration);
+                if (!isDraggingSeekSlider && duration > 0) {
+                    const percent = Math.min(100, Math.round((current / duration) * 100));
+                    document.getElementById('progressSlider').value = percent;
+                }
             }
         }
 
-        function onSeekSliderInput() {
+        function onSeekSliderInput(percentValue) {
             isDraggingSeekSlider = true;
+            const duration = roomState.duration || 0;
+            if (duration > 0) {
+                const previewSec = Math.floor((percentValue / 100) * duration);
+                document.getElementById('currentTimeText').textContent = formatTime(previewSec);
+            }
         }
 
         function onSeekSliderChange(percentValue) {
             isDraggingSeekSlider = false;
-            if (!roomState.currentSong || !ytPlayer || typeof ytPlayer.getDuration !== 'function') return;
-            const duration = ytPlayer.getDuration();
+            if (!roomState.currentSong) return;
+
+            const playerDuration = (deviceRole === 'host' && ytPlayer && typeof ytPlayer.getDuration === 'function')
+                ? ytPlayer.getDuration()
+                : 0;
+            const duration = playerDuration > 0 ? playerDuration : (roomState.duration || 0);
+
             if (duration > 0) {
                 const targetSec = Math.floor((percentValue / 100) * duration);
+                roomState.currentTime = targetSec;
                 roomState.seekToSeconds = targetSec;
                 roomState.seekNonce = (roomState.seekNonce || 0) + 1;
                 syncRoomState(null);
@@ -1029,6 +1202,23 @@
         /********************************************************************
          * 9. 畫面渲染 (Render UI)
          ********************************************************************/
+        function renderVolumeUI() {
+            const volSlider = document.getElementById('volumeSlider');
+            const volText = document.getElementById('volumeValueText');
+            const volIcon = document.getElementById('volumeIcon');
+
+            volSlider.value = roomState.isMuted ? 0 : roomState.volume;
+            volText.textContent = roomState.isMuted ? '靜音' : `${roomState.volume}%`;
+
+            if (roomState.isMuted || roomState.volume === 0) {
+                volIcon.className = 'fa-solid fa-volume-xmark text-rose-500 text-xs';
+            } else if (roomState.volume < 50) {
+                volIcon.className = 'fa-solid fa-volume-low text-indigo-600 text-xs';
+            } else {
+                volIcon.className = 'fa-solid fa-volume-high text-indigo-600 text-xs';
+            }
+        }
+
         function renderAllUI() {
             const current = roomState.currentSong;
 
@@ -1064,22 +1254,7 @@
             }
 
             updatePlayPauseButtonUI(roomState.isPlaying && !!current);
-
-            const volSlider = document.getElementById('volumeSlider');
-            const volText = document.getElementById('volumeValueText');
-            const volIcon = document.getElementById('volumeIcon');
-
-            volSlider.value = roomState.isMuted ? 0 : roomState.volume;
-            volText.textContent = roomState.isMuted ? '靜音' : `${roomState.volume}%`;
-
-            if (roomState.isMuted || roomState.volume === 0) {
-                volIcon.className = 'fa-solid fa-volume-xmark text-rose-500 text-xs';
-            } else if (roomState.volume < 50) {
-                volIcon.className = 'fa-solid fa-volume-low text-indigo-600 text-xs';
-            } else {
-                volIcon.className = 'fa-solid fa-volume-high text-indigo-600 text-xs';
-            }
-
+            renderVolumeUI();
             renderQueueList();
             renderHistoryList();
             updateVideoCollapseUI();
