@@ -292,23 +292,23 @@
         <!-- 右側欄：搜尋歌曲 / 貼網址點歌區 ＋ 待播清單 (佔 5 欄) -->
         <section class="lg:col-span-5 flex flex-col gap-4">
             
-            <!-- 搜尋歌曲 / 貼網址點歌卡片 -->
+<!-- 內置找歌 / 貼網址點歌卡片 -->
             <div class="bg-white border border-indigo-100/90 rounded-2xl p-4 sm:p-5 shadow-sm shadow-indigo-950/5">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="font-bold text-sm text-zinc-900 flex items-center gap-2">
                         <span class="w-5 h-5 rounded-md bg-rose-50 text-rose-600 flex items-center justify-center text-xs">
                             <i class="fa-solid fa-magnifying-glass"></i>
                         </span>
-                        <span>搜尋歌曲 / 貼網址點歌</span>
+                        <span>內置找歌 / 貼網址點歌</span>
                     </h3>
                 </div>
 
-                <!-- 搜尋或網址輸入框 -->
+                <!-- 搜尋歌名或網址輸入框 -->
                 <form onsubmit="handleAddSongSubmit(event)" class="flex flex-col gap-2.5">
                     <div class="relative flex-1">
                         <i class="fa-brands fa-youtube absolute left-3.5 top-1/2 -translate-y-1/2 text-rose-500 text-sm"></i>
                         <input id="youtubeUrlInput" type="text"
-                            placeholder="輸入歌名、歌手搜尋，或貼上 YouTube 網址"
+                            placeholder="直接輸入歌名、歌手搜尋，或貼上網址"
                             class="w-full pl-9 pr-8 py-2.5 rounded-xl bg-slate-50/80 border border-slate-200 text-xs sm:text-sm text-zinc-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition">
                         <button type="button" onclick="clearUrlInput()" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-zinc-700">
                             <i class="fa-solid fa-xmark text-xs"></i>
@@ -316,13 +316,13 @@
                     </div>
 
                     <div class="flex gap-2">
-                        <!-- 搜尋或加入待播歌單 -->
+                        <!-- 站內搜尋或加入歌單 -->
                         <button type="submit" id="submitSongBtn"
                             class="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-semibold text-xs sm:text-sm shadow-xs shadow-indigo-200 flex items-center justify-center gap-2 transition">
                             <i class="fa-solid fa-magnifying-glass text-xs"></i>
-                            <span>搜尋 / 加入</span>
+                            <span>找歌 / 加入</span>
                         </button>
-                        <!-- 網址直接插播為下一首 -->
+                        <!-- 直接插播為下一首 -->
                         <button type="button" onclick="handleAddSongAndPrioritize()"
                             class="py-2.5 px-3.5 rounded-xl bg-rose-50 hover:bg-rose-100/80 text-rose-700 border border-rose-200/80 font-medium text-xs sm:text-sm flex items-center justify-center gap-1.5 transition"
                             title="直接排到下一首播放">
@@ -332,8 +332,8 @@
                     </div>
                 </form>
 
-                <!-- 站內找歌搜尋結果列表（預設隱藏） -->
-                <div id="searchResultsContainer" class="hidden mt-3 pt-3 border-t border-slate-100 space-y-2 max-h-72 overflow-y-auto custom-scrollbar"></div>
+                <!-- 站內搜尋結果清單（預設隱藏，搜到歌直接原地展開） -->
+                <div id="searchResultsContainer" class="hidden mt-3 pt-3 border-t border-slate-100 space-y-2 max-h-80 overflow-y-auto custom-scrollbar"></div>
             </div>
 
             <!-- 待播歌單 / 已播紀錄 卡片 -->
@@ -965,18 +965,9 @@
             syncPlayerWithRoomState();
         }
 
-        /********************************************************************
-         * 6. 站內找歌、解析 YouTube 網址、抓取歌名與縮圖
+/********************************************************************
+         * 6. 前往 YouTube 找歌、解析 YouTube 網址、抓取歌名與縮圖
          ********************************************************************/
-        const YT_SEARCH_API_KEY = "AIzaSyBJCSMVoYWq_bn-mfxm3KJliVc5FLKVz2I";
-        let lastSearchResults = [];
-
-        function decodeHtmlEntities(str) {
-            if (!str) return '';
-            const txt = document.createElement('textarea');
-            txt.innerHTML = str;
-            return txt.value;
-        }
 
         function extractYouTubeId(inputUrl) {
             if (!inputUrl) return null;
@@ -1098,7 +1089,16 @@
             return true;
         }
 
-        // 透過 YouTube Data API v3 搜尋可嵌入影片
+const YT_SEARCH_API_KEY = "AIzaSyBJCSMVoYWq_bn-mfxm3KJliVc5FLKVz2I";
+        let lastSearchResults = [];
+
+        function decodeHtmlEntities(str) {
+            if (!str) return '';
+            const txt = document.createElement('textarea');
+            txt.innerHTML = str;
+            return txt.value;
+        }
+
         async function searchYouTubeSongs(keyword) {
             const submitBtn = document.getElementById('submitSongBtn');
             const originalHtml = submitBtn.innerHTML;
@@ -1107,7 +1107,7 @@
 
             let results = [];
             try {
-                const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=8&q=${encodeURIComponent(keyword)}&key=${YT_SEARCH_API_KEY}`;
+                const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=10&q=${encodeURIComponent(keyword)}&key=${YT_SEARCH_API_KEY}`;
                 const res = await fetch(apiUrl);
                 if (res.ok) {
                     const data = await res.json();
@@ -1124,12 +1124,9 @@
                             }));
                     }
                 } else {
-                    const errData = await res.json().catch(() => ({}));
-                    console.warn('YouTube API 搜尋失敗:', errData);
                     showToast('請先至 Google Cloud Console 啟用 YouTube Data API v3', 'error');
                 }
             } catch (e) {
-                console.warn('搜尋請求發生網路錯誤:', e);
                 showToast('搜尋連線失敗，請檢查網路狀態', 'error');
             } finally {
                 submitBtn.disabled = false;
@@ -1145,17 +1142,13 @@
             container.classList.remove('hidden');
 
             if (!results || results.length === 0) {
-                container.innerHTML = `
-                    <div class="py-4 text-center text-xs text-slate-400">
-                        找不到與「${escapeHtml(keyword)}」相關的可播放歌曲
-                    </div>
-                `;
+                container.innerHTML = `<div class="py-4 text-center text-xs text-slate-400">找不到與「${escapeHtml(keyword)}」相關的可播放歌曲</div>`;
                 return;
             }
 
             const headerHtml = `
                 <div class="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                    <span>搜尋結果（點擊即可點播）</span>
+                    <span>找到 ${results.length} 首歌曲（點擊直接加入）</span>
                     <button type="button" onclick="hideSearchResults()" class="hover:text-rose-600 transition">關閉結果</button>
                 </div>
             `;
@@ -1214,7 +1207,6 @@
             await commitNewSongToRoom(newSong, prioritize);
         }
 
-        // 智慧判斷：輸入為網址則直接加入，輸入為歌名則搜尋，輸入為空則讀取剪貼簿
         async function processSearchOrUrl(prioritize = false) {
             const input = document.getElementById('youtubeUrlInput');
             let text = input.value.trim();
@@ -1803,7 +1795,7 @@
             showToast(`點歌人暱稱已設為：${clean}`);
         }
 
-        function clearUrlInput() {
+function clearUrlInput() {
             const input = document.getElementById('youtubeUrlInput');
             input.value = '';
             hideSearchResults();
