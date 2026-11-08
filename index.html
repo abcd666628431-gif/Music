@@ -216,15 +216,12 @@
                     <div class="aspect-video w-full relative">
                         <div id="yt-player" class="w-full h-full"></div>
 
-                        <!-- 待機空狀態遮罩 -->
+<!-- 待機空狀態遮罩 -->
                         <div id="idlePlayerOverlay" class="absolute inset-0 bg-gradient-to-br from-slate-50 via-indigo-50/40 to-rose-50/40 flex flex-col items-center justify-center p-6 text-center z-10">
                             <div class="w-12 h-12 rounded-2xl bg-white border border-rose-100 shadow-sm flex items-center justify-center mb-3">
                                 <i class="fa-brands fa-youtube text-2xl text-rose-600"></i>
                             </div>
-                            <h3 class="text-base font-bold text-zinc-900 mb-1">目前沒有正在播放的歌曲</h3>
-                            <p class="text-xs text-slate-500 max-w-sm mb-4">
-                                複製任何 YouTube 音樂或伴奏網址貼到右側點歌台，或點擊下方按鈕快速載入試聽。
-                            </p>
+                            <h3 class="text-base font-bold text-zinc-900 mb-4">目前沒有正在播放的歌曲</h3>
                             <button onclick="addDemoSongs()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium shadow-xs shadow-indigo-200 transition flex items-center gap-2">
                                 <i class="fa-solid fa-play text-[10px]"></i>
                                 載入 3 首測試歌曲
@@ -385,13 +382,14 @@
 import { getFirestore, doc, setDoc, updateDoc, getDoc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // 原子交易更新：確保多人同時點歌、切歌時以雲端最新歌單為基準合併，絕不互相覆蓋
-        window.mutateRoomTransaction = async (mutatorFn) => {
+window.mutateRoomTransaction = async (mutatorFn) => {
             if (!window.isCloudReady) return false;
             try {
                 await runTransaction(db, async (transaction) => {
                     const snap = await transaction.get(roomDocRef);
-                    const baseData = snap.exists() ? snap.data() : JSON.parse(JSON.stringify(window.roomState));
-                    const nextData = mutatorFn(JSON.parse(JSON.stringify(baseData)));
+                    const exists = snap.exists();
+                    const baseData = exists ? snap.data() : JSON.parse(JSON.stringify(window.roomState));
+                    const nextData = mutatorFn(JSON.parse(JSON.stringify(baseData)), exists);
                     if (nextData) {
                         transaction.set(roomDocRef, nextData);
                     }
@@ -486,8 +484,11 @@ import { getFirestore, doc, setDoc, updateDoc, getDoc, onSnapshot, runTransactio
                     if (typeof window.applyIncomingState === 'function') {
                         window.applyIncomingState(cloudData, 'cloud');
                     }
-                } else if (window.roomState) {
-                    window.pushStateToCloud(window.roomState);
+} else if (window.roomState && typeof window.mutateRoomTransaction === 'function') {
+                    window.mutateRoomTransaction((baseData, exists) => {
+                        if (exists) return null;
+                        return JSON.parse(JSON.stringify(window.roomState));
+                    });
                 }
             }, (error) => {
                 console.error("雲端監聽發生錯誤，啟用跨分頁本地同步備援:", error);
@@ -634,13 +635,13 @@ let lastEndedVideoId = null;
             if (deviceRole !== 'host') return;
 
             // 當影片播放完畢 (YT.PlayerState.ENDED === 0)，防止同一首歌被重複切歌兩次
-            if (event.data === YT.PlayerState.ENDED) {
+if (event.data === YT.PlayerState.ENDED) {
                 const endedId = roomState.currentSong ? roomState.currentSong.id : null;
                 if (endedId && lastEndedVideoId !== endedId) {
                     lastEndedVideoId = endedId;
-                    playNextSongFromQueue();
+                    playNextSongFromQueue(null, endedId);
                 }
-            } else if (event.data === YT.PlayerState.PLAYING) {
+            }
 
         function onPlayerError(event) {
             if (deviceRole !== 'host') return;
@@ -946,13 +947,17 @@ const applyAddLogic = (state) => {
                 return state;
             };
 
+let committedToast = null;
             if (window.isCloudReady && typeof window.mutateRoomTransaction === 'function') {
-                await window.mutateRoomTransaction((cloudState) => {
+                const ok = await window.mutateRoomTransaction((cloudState) => {
                     const updated = applyAddLogic(cloudState);
-                    lastHandledToastTime = updated.lastActionToast.timestamp;
-                    showToast(updated.lastActionToast.message);
+                    committedToast = updated.lastActionToast;
                     return updated;
                 });
+                if (ok && committedToast) {
+                    lastHandledToastTime = committedToast.timestamp;
+                    showToast(committedToast.message);
+                }
             } else {
                 const updated = applyAddLogic(roomState);
                 syncRoomState(updated.lastActionToast.message);
@@ -993,8 +998,11 @@ const applyAddLogic = (state) => {
         /********************************************************************
          * 7. KTV 導播控制功能：切歌、插播、重唱、音量調整、刪除
          ********************************************************************/
-async function playNextSongFromQueue(customToast = null) {
+async function playNextSongFromQueue(customToast = null, expectedSongId = null) {
+            let committedToast = null;
             const applyNextLogic = (state) => {
+                const actualId = state.currentSong ? state.currentSong.id : null;
+                if (expectedSongId && actualId !== expectedSongId) return null;
                 state.queue = Array.isArray(state.queue) ? state.queue : [];
                 state.history = Array.isArray(state.history) ? state.history : [];
                 if (state.currentSong) {
@@ -1021,40 +1029,78 @@ async function playNextSongFromQueue(customToast = null) {
                 return state;
             };
 
-            if (window.isCloudReady && typeof window.mutateRoomTransaction === 'function') {
-                await window.mutateRoomTransaction((cloudState) => {
+if (window.isCloudReady && typeof window.mutateRoomTransaction === 'function') {
+                const ok = await window.mutateRoomTransaction((cloudState) => {
                     const updated = applyNextLogic(cloudState);
-                    lastHandledToastTime = updated.lastActionToast.timestamp;
-                    showToast(updated.lastActionToast.message);
+                    committedToast = updated.lastActionToast;
                     return updated;
                 });
+                if (ok && committedToast) {
+                    lastHandledToastTime = committedToast.timestamp;
+                    showToast(committedToast.message);
+                }
             } else {
                 const updated = applyNextLogic(roomState);
-                syncRoomState(updated.lastActionToast.message);
+                if (updated) syncRoomState(updated.lastActionToast.message);
             }
         }
 
-        function triggerSkipNext() {
+function triggerSkipNext() {
             if (!roomState.currentSong && roomState.queue.length === 0) {
                 showToast('目前沒有正在播放或待播的歌曲', 'warning');
                 return;
             }
             const requester = document.getElementById('requesterNameInput').value.trim() || '歌友';
-            playNextSongFromQueue(`${requester} 切歌，跳至下一首`);
+            const currentId = roomState.currentSong ? roomState.currentSong.id : null;
+            playNextSongFromQueue(`${requester} 切歌，跳至下一首`, currentId);
         }
 
-        function triggerPrioritizeSong(index) {
-            if (index <= 0 || index >= roomState.queue.length) return;
-            const [targetSong] = roomState.queue.splice(index, 1);
-            roomState.queue.unshift(targetSong);
+async function triggerPrioritizeSong(songId) {
             const requester = document.getElementById('requesterNameInput').value.trim() || '歌友';
-            syncRoomState(`${requester} 將《${targetSong.title}》插播為下一首`);
+            let committedToast = null;
+            const applyPrioritize = (state) => {
+                state.queue = Array.isArray(state.queue) ? state.queue : [];
+                const idx = state.queue.findIndex(s => s.id === songId);
+                if (idx <= 0) return null;
+                const [targetSong] = state.queue.splice(idx, 1);
+                state.queue.unshift(targetSong);
+                state.stateVersion = (state.stateVersion || 0) + 1;
+                state.updatedAt = Date.now();
+                state.updatedBy = clientId;
+                state.lastActionToast = { message: `${requester} 將《${targetSong.title}》插播為下一首`, timestamp: Date.now() };
+                committedToast = state.lastActionToast;
+                return state;
+            };
+            if (window.isCloudReady && typeof window.mutateRoomTransaction === 'function') {
+                const ok = await window.mutateRoomTransaction((cloudState) => applyPrioritize(cloudState));
+                if (ok && committedToast) { lastHandledToastTime = committedToast.timestamp; showToast(committedToast.message); }
+            } else {
+                const updated = applyPrioritize(roomState);
+                if (updated) syncRoomState(updated.lastActionToast.message);
+            }
         }
 
-        function triggerRemoveFromQueue(index) {
-            if (index < 0 || index >= roomState.queue.length) return;
-            const [removed] = roomState.queue.splice(index, 1);
-            syncRoomState(`已移除《${removed.title}》`);
+        async function triggerRemoveFromQueue(songId) {
+            let committedToast = null;
+            const applyRemove = (state) => {
+                state.queue = Array.isArray(state.queue) ? state.queue : [];
+                const idx = state.queue.findIndex(s => s.id === songId);
+                if (idx === -1) return null;
+                const [removed] = state.queue.splice(idx, 1);
+                state.stateVersion = (state.stateVersion || 0) + 1;
+                state.updatedAt = Date.now();
+                state.updatedBy = clientId;
+                state.lastActionToast = { message: `已移除《${removed.title}》`, timestamp: Date.now() };
+                committedToast = state.lastActionToast;
+                return state;
+            };
+            if (window.isCloudReady && typeof window.mutateRoomTransaction === 'function') {
+                const ok = await window.mutateRoomTransaction((cloudState) => applyRemove(cloudState));
+                if (ok && committedToast) { lastHandledToastTime = committedToast.timestamp; showToast(committedToast.message); }
+            } else {
+                const updated = applyRemove(roomState);
+                if (updated) syncRoomState(updated.lastActionToast.message);
+            }
         }
 
 function triggerPlayPause() {
@@ -1119,10 +1165,26 @@ function triggerToggleMute() {
             );
         }
 
-        function triggerClearQueue() {
+async function triggerClearQueue() {
             if (roomState.queue.length === 0) return;
-            roomState.queue = [];
-            syncRoomState('已清空所有待播歌曲');
+            let committedToast = null;
+            const applyClear = (state) => {
+                if (!Array.isArray(state.queue) || state.queue.length === 0) return null;
+                state.queue = [];
+                state.stateVersion = (state.stateVersion || 0) + 1;
+                state.updatedAt = Date.now();
+                state.updatedBy = clientId;
+                state.lastActionToast = { message: '已清空所有待播歌曲', timestamp: Date.now() };
+                committedToast = state.lastActionToast;
+                return state;
+            };
+            if (window.isCloudReady && typeof window.mutateRoomTransaction === 'function') {
+                const ok = await window.mutateRoomTransaction((cloudState) => applyClear(cloudState));
+                if (ok && committedToast) { lastHandledToastTime = committedToast.timestamp; showToast(committedToast.message); }
+            } else {
+                const updated = applyClear(roomState);
+                if (updated) syncRoomState(updated.lastActionToast.message);
+            }
         }
 
         /********************************************************************
@@ -1352,10 +1414,10 @@ function renderQueueList() {
                                 </div>
                             </div>
 
-                            <!-- 操作按鈕：插播(頂置) 與 刪除 -->
+<!-- 操作按鈕：插播(頂置) 與 刪除 -->
                             <div class="flex items-center gap-1 shrink-0">
                                 ${!isNext ? `
-                                    <button onclick="triggerPrioritizeSong(${idx})" 
+                                    <button onclick="triggerPrioritizeSong('${escapeHtml(song.id)}')" 
                                         class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-500 text-[11px] font-medium flex items-center gap-1 transition"
                                         title="插播到下一首">
                                         <i class="fa-solid fa-arrow-up text-[10px]"></i>
@@ -1364,7 +1426,7 @@ function renderQueueList() {
                                 ` : `
                                     <span class="px-2 py-1 text-[11px] text-rose-500 font-medium hidden sm:inline">第一順位</span>
                                 `}
-                                <button onclick="triggerRemoveFromQueue(${idx})" 
+                                <button onclick="triggerRemoveFromQueue('${escapeHtml(song.id)}')" 
                                     class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
                                     title="刪除此首">
                                     <i class="fa-solid fa-xmark text-xs"></i>
