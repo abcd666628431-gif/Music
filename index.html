@@ -599,16 +599,25 @@ function getRandomDefaultName() {
 progressInterval = setInterval(updateProgressBarUI, 500);
         });
 
-        // 空白鍵快捷鍵：暫停 / 播放（在輸入框打字時不觸發）
+// 鍵盤快捷鍵：空白鍵（暫停/播放）、上下方向鍵（音量 ±1%）（在輸入框打字時不觸發）
         document.addEventListener('keydown', (event) => {
+            const activeEl = document.activeElement;
+            const tag = activeEl ? activeEl.tagName : '';
+            // 若焦點在「輸入框（排除音量/進度滑桿）」或打字區域，不觸發快捷鍵
+            const isTextInput = (tag === 'INPUT' && activeEl.type !== 'range') || tag === 'TEXTAREA' || tag === 'SELECT' || (activeEl && activeEl.isContentEditable);
+            if (isTextInput) {
+                return;
+            }
+
             if (event.code === 'Space' || event.key === ' ') {
-                const activeEl = document.activeElement;
-                const tag = activeEl ? activeEl.tagName : '';
-                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (activeEl && activeEl.isContentEditable)) {
-                    return;
-                }
                 event.preventDefault();
                 triggerPlayPause();
+            } else if (event.code === 'ArrowUp' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                adjustVolumeByStep(1);
+            } else if (event.code === 'ArrowDown' || event.key === 'ArrowDown') {
+                event.preventDefault();
+                adjustVolumeByStep(-1);
             }
         });
 
