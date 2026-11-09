@@ -274,13 +274,13 @@
                         <button id="muteToggleBtn" onclick="triggerToggleMute()" class="text-indigo-600 hover:text-indigo-800 transition w-5 text-center" title="靜音開關">
                             <i id="volumeIcon" class="fa-solid fa-volume-high text-indigo-600 text-xs"></i>
                         </button>
-                        <button onclick="adjustVolumeByStep(-10)" class="text-xs text-slate-400 hover:text-indigo-600 px-1" title="減小音量">
+<button onclick="adjustVolumeByStep(-1)" class="text-xs text-slate-400 hover:text-indigo-600 px-1" title="減小音量">
                             <i class="fa-solid fa-minus text-[10px]"></i>
                         </button>
                         <input id="volumeSlider" type="range" min="0" max="100" value="80" 
                             oninput="triggerVolumeChange(this.value)"
                             class="flex-1">
-                        <button onclick="adjustVolumeByStep(10)" class="text-xs text-slate-400 hover:text-indigo-600 px-1" title="加大音量">
+                        <button onclick="adjustVolumeByStep(1)" class="text-xs text-slate-400 hover:text-indigo-600 px-1" title="加大音量">
                             <i class="fa-solid fa-plus text-[10px]"></i>
                         </button>
                         <span id="volumeValueText" class="text-[11px] font-mono font-semibold text-indigo-900 w-8 text-right">80%</span>
@@ -619,12 +619,12 @@
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (activeEl && activeEl.isContentEditable)) {
                 return;
             }
-            if (event.code === 'Space' || event.key === ' ') {
+if (event.code === 'Space' || event.key === ' ') {
                 event.preventDefault();
                 triggerPlayPause();
             } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                 event.preventDefault();
-                adjustVolumeByStep(event.key === 'ArrowUp' ? 5 : -5);
+                adjustVolumeByStep(event.key === 'ArrowUp' ? 1 : -1);
             }
         });
 
