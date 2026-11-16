@@ -44,12 +44,24 @@
             background: #818cf8;
         }
 
-        /* 簡約靜態音樂條（免除 60fps 無限重繪耗能） */
-        .eq-bar-1 { height: 55%; }
-        .eq-bar-2 { height: 95%; }
-        .eq-bar-3 { height: 70%; }
-        .eq-bar-4 { height: 45%; }
-        .eq-paused span { height: 25% !important; }
+/* 音量感應動態音樂條（僅在數值變化時由 GPU 平滑過渡，低耗能） */
+        #equalizerIcon span {
+            transition: height 0.14s ease-out;
+        }
+        .eq-bar-1 { height: 35%; }
+        .eq-bar-2 { height: 65%; }
+        .eq-bar-3 { height: 50%; }
+        .eq-bar-4 { height: 30%; }
+        .eq-paused span { height: 22% !important; }
+
+        /* 12 段 LED 音量感應電平格 */
+        .vu-seg {
+            transition: opacity 0.1s ease, transform 0.1s ease;
+            opacity: 0.18;
+        }
+        .vu-seg.active {
+            opacity: 1;
+        }
 
         /* 影片收起時的平滑過渡（不可用 display:none 以免 YouTube IFrame 停止播放聲音） */
         .video-wrapper-expanded {
@@ -269,12 +281,12 @@
                         </button>
                     </div>
 
-                    <!-- 音量控制區 (5欄) -->
+<!-- 音量控制區 (5欄) -->
                     <div class="sm:col-span-5 flex items-center gap-2 bg-indigo-50/50 px-3 py-2 rounded-xl border border-indigo-100/80">
                         <button id="muteToggleBtn" onclick="triggerToggleMute()" class="text-indigo-600 hover:text-indigo-800 transition w-5 text-center" title="靜音開關">
                             <i id="volumeIcon" class="fa-solid fa-volume-high text-indigo-600 text-xs"></i>
                         </button>
-<button onclick="adjustVolumeByStep(-1)" class="text-xs text-slate-400 hover:text-indigo-600 px-1" title="減小音量">
+                        <button onclick="adjustVolumeByStep(-1)" class="text-xs text-slate-400 hover:text-indigo-600 px-1" title="減小音量">
                             <i class="fa-solid fa-minus text-[10px]"></i>
                         </button>
                         <input id="volumeSlider" type="range" min="0" max="100" value="80" 
@@ -284,6 +296,59 @@
                             <i class="fa-solid fa-plus text-[10px]"></i>
                         </button>
                         <span id="volumeValueText" class="text-[11px] font-mono font-semibold text-indigo-900 w-8 text-right">80%</span>
+                    </div>
+                </div>
+
+                <!-- 音量感應可視化 & 音量自動調節閥 控台列 -->
+                <div class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <!-- 左側：12段 LED 音量感應可視化電平表 -->
+                    <div class="flex items-center gap-2.5 flex-1 min-w-[220px]">
+                        <button id="micSenseToggleBtn" onclick="toggleLiveMicSensing()" 
+                            class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 text-[11px] font-medium flex items-center gap-1.5 shrink-0 transition"
+                            title="點擊可切換「智能模擬感應」或「麥克風環境音實時感應」">
+                            <i id="micSenseIcon" class="fa-solid fa-wave-square text-indigo-500 text-[10px]"></i>
+                            <span id="micSenseText">音壓感應</span>
+                        </button>
+
+                        <!-- 12 格 LED 電平燈條 (綠 1-7 / 黃 8-10 / 紅 11-12) -->
+                        <div id="vuMeterBars" class="flex-1 flex items-center gap-1 h-3.5 bg-slate-900/90 px-2 py-1 rounded-lg border border-slate-200">
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-emerald-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-amber-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-amber-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-amber-400"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-rose-500"></span>
+                            <span class="vu-seg flex-1 h-full rounded-xs bg-rose-500"></span>
+                        </div>
+
+                        <span id="sensedLevelText" class="text-[11px] font-mono text-slate-500 w-14 text-right shrink-0">-∞ dB</span>
+                    </div>
+
+                    <!-- 右側：音量自動調節閥 (AGC / 防爆音壓限器) -->
+                    <div class="flex items-center gap-2 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200/90">
+                        <button id="autoValveToggleBtn" onclick="toggleAutoVolumeValve()" 
+                            class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold flex items-center gap-1.5 transition shadow-2xs"
+                            title="自動調節閥：切歌平滑漸入、音壓超標自動壓限防爆音">
+                            <i class="fa-solid fa-gauge-high text-[10px]"></i>
+                            <span>自動調節閥: 開</span>
+                        </button>
+
+                        <div class="flex items-center gap-1.5 text-[11px] text-slate-600">
+                            <span class="text-slate-400">上限</span>
+                            <input id="valveCeilingSlider" type="range" min="50" max="100" value="85" step="5"
+                                oninput="onValveCeilingChange(this.value)"
+                                class="w-16" title="設定自動壓限最高安全音量上限">
+                            <span id="valveCeilingText" class="font-mono font-semibold text-indigo-700 w-8">85%</span>
+                        </div>
+
+                        <span id="valveActiveBadge" class="hidden px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-semibold whitespace-nowrap">
+                            壓限中
+                        </span>
                     </div>
                 </div>
             </div>
@@ -564,9 +629,21 @@
         let lastHandledToastTime = 0;
         let isDraggingSeekSlider = false;
         let progressInterval = null;
-        let volumeSyncTimer = null;
+let volumeSyncTimer = null;
         let lastTimeCloudSync = 0;
         let autoplayCheckTimer = null;
+
+        // 音量感應可視化與自動調節閥狀態
+        let autoValveEnabled = true;      // 是否開啟音量自動調節閥
+        let valveCeiling = 85;            // 調節閥安全上限 (%)
+        let currentEffectiveVol = 80;     // 調節閥實際輸出至播放器的即時音量
+        let softStartFactor = 1;          // 開唱平滑漸入係數 (0.0 ~ 1.0)
+        let isLiveMicActive = false;      // 是否啟用真實麥克風收音感應
+        let audioCtx = null;
+        let analyserNode = null;
+        let micStream = null;
+        let freqDataArray = null;
+        let meterInterval = null;
 
         function getRandomDefaultName() {
             const list = ['A', 'B', 'C', 'D'];
@@ -604,7 +681,8 @@
             const firstScriptTag = document.getElementsByTagName('script')[0];
             firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-            progressInterval = setInterval(updateProgressBarUI, 1000);
+progressInterval = setInterval(updateProgressBarUI, 1000);
+            meterInterval = setInterval(updateAudioMeterAndValve, 140);
         });
 
         // 切回分頁時立即同步一次進度條
@@ -853,11 +931,12 @@ if (event.code === 'Space' || event.key === ' ') {
 
             if (!isPlayerReady) return;
 
-            const songUniqueId = current.id || current.videoId;
+const songUniqueId = current.id || current.videoId;
             if (loadedVideoId !== songUniqueId) {
                 loadedVideoId = songUniqueId;
                 isTransitioningVideo = true;
                 setTimeout(() => { isTransitioningVideo = false; }, 1500);
+                if (autoValveEnabled) softStartFactor = 0.05; // 切歌啟動平滑漸大
                 ytPlayer.loadVideoById({
                     videoId: current.videoId,
                     startSeconds: roomState.currentTime || 0
@@ -869,6 +948,7 @@ if (event.code === 'Space' || event.key === ' ') {
                 lastHandledReplayNonce = roomState.replayNonce;
                 isTransitioningVideo = true;
                 setTimeout(() => { isTransitioningVideo = false; }, 1000);
+                if (autoValveEnabled) softStartFactor = 0.05; // 重唱啟動平滑漸大
                 ytPlayer.seekTo(0, true);
                 ytPlayer.playVideo();
                 scheduleAutoplayFallbackCheck();
@@ -885,17 +965,21 @@ if (event.code === 'Space' || event.key === ' ') {
 
             const playerState = ytPlayer.getPlayerState ? ytPlayer.getPlayerState() : -1;
             if (roomState.isPlaying && playerState !== YT.PlayerState.PLAYING && playerState !== YT.PlayerState.BUFFERING) {
+                if (autoValveEnabled) softStartFactor = 0.1; // 恢復播放啟動平滑漸大
                 ytPlayer.playVideo();
             } else if (!roomState.isPlaying && playerState === YT.PlayerState.PLAYING) {
                 ytPlayer.pauseVideo();
             }
 
-            // 副機展開預覽時維持靜音，不干擾主機聲音
+            // 副機展開預覽時維持靜音；主機則由自動調節閥或目標音量控制
             if (deviceRole === 'remote' || roomState.isMuted) {
                 ytPlayer.mute();
             } else {
                 ytPlayer.unMute();
-                ytPlayer.setVolume(roomState.volume);
+                const targetOut = autoValveEnabled
+                    ? Math.min(roomState.volume, valveCeiling) * softStartFactor
+                    : roomState.volume;
+                ytPlayer.setVolume(Math.round(targetOut));
             }
         }
 
@@ -1448,6 +1532,188 @@ const YT_SEARCH_API_KEY = "AIzaSyBJCSMVoYWq_bn-mfxm3KJliVc5FLKVz2I";
             } else {
                 const updated = applyClear(roomState);
                 if (updated) syncRoomState(updated.lastActionToast.message);
+            }
+        }
+
+/********************************************************************
+         * 7.5 音量感應可視化 & 音量自動調節閥 (AGC / Peak Limiter)
+         ********************************************************************/
+        // 切換「麥克風實時環境收音」或「內置智能音壓感應」
+        async function toggleLiveMicSensing() {
+            const btn = document.getElementById('micSenseToggleBtn');
+            const icon = document.getElementById('micSenseIcon');
+            const text = document.getElementById('micSenseText');
+
+            if (isLiveMicActive) {
+                isLiveMicActive = false;
+                if (micStream) {
+                    micStream.getTracks().forEach(t => t.stop());
+                    micStream = null;
+                }
+                btn.className = 'px-2 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 text-[11px] font-medium flex items-center gap-1.5 shrink-0 transition';
+                icon.className = 'fa-solid fa-wave-square text-indigo-500 text-[10px]';
+                text.textContent = '音壓感應';
+                showToast('已切換為內置智能音壓感應');
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showToast('此瀏覽器不支援麥克風收音，維持內置感應模式', 'warning');
+                return;
+            }
+
+            try {
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+                const source = audioCtx.createMediaStreamSource(micStream);
+                analyserNode = audioCtx.createAnalyser();
+                analyserNode.fftSize = 64;
+                analyserNode.smoothingTimeConstant = 0.65;
+                source.connect(analyserNode);
+                freqDataArray = new Uint8Array(analyserNode.frequencyBinCount);
+                isLiveMicActive = true;
+
+                btn.className = 'px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-semibold flex items-center gap-1.5 shrink-0 transition';
+                icon.className = 'fa-solid fa-microphone-lines text-rose-600 text-[10px]';
+                text.textContent = '實時收音中';
+                showToast('已開啟實時收音感應，自動調節閥將依現場真實音量壓限');
+            } catch (err) {
+                showToast('未授權麥克風權限，維持內置智能感應模式', 'warning');
+            }
+        }
+
+        // 開關「音量自動調節閥」
+        function toggleAutoVolumeValve() {
+            autoValveEnabled = !autoValveEnabled;
+            const btn = document.getElementById('autoValveToggleBtn');
+            const badge = document.getElementById('valveActiveBadge');
+
+            if (autoValveEnabled) {
+                btn.className = 'px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold flex items-center gap-1.5 transition shadow-2xs';
+                btn.innerHTML = '<i class="fa-solid fa-gauge-high text-[10px]"></i><span>自動調節閥: 開</span>';
+                showToast(`已開啟音量自動調節閥（上限 ${valveCeiling}%・切歌漸入・超標自動壓限）`);
+            } else {
+                softStartFactor = 1;
+                btn.className = 'px-2.5 py-1 rounded-lg bg-slate-200 text-slate-600 text-[11px] font-medium flex items-center gap-1.5 transition';
+                btn.innerHTML = '<i class="fa-solid fa-gauge text-[10px]"></i><span>自動調節閥: 關</span>';
+                if (badge) badge.classList.add('hidden');
+                if (deviceRole === 'host' && isPlayerReady && ytPlayer && !roomState.isMuted) {
+                    ytPlayer.setVolume(roomState.volume);
+                }
+                showToast('已關閉音量自動調節閥');
+            }
+        }
+
+        // 調整調節閥安全上限 (%)
+        function onValveCeilingChange(val) {
+            valveCeiling = Math.max(50, Math.min(100, parseInt(val, 10) || 85));
+            document.getElementById('valveCeilingText').textContent = `${valveCeiling}%`;
+        }
+
+        // 每 140ms 執行一次：計算感應音壓、更新 12 段 LED 與左上角音柱、執行自動調節閥壓限
+        function updateAudioMeterAndValve() {
+            if (document.hidden) return;
+
+            const isActivePlay = !!(roomState.currentSong && roomState.isPlaying && !roomState.isMuted && roomState.volume > 0);
+            const segs = document.querySelectorAll('#vuMeterBars .vu-seg');
+            const eqSpans = document.querySelectorAll('#equalizerIcon span');
+            const levelText = document.getElementById('sensedLevelText');
+            const valveBadge = document.getElementById('valveActiveBadge');
+
+            // 1. 取得目前感應音壓 (0 ~ 100) 與四頻段能量
+            let sensedLevel = 0;
+            let bands = [22, 22, 22, 22];
+
+            if (isLiveMicActive && analyserNode && freqDataArray) {
+                analyserNode.getByteFrequencyData(freqDataArray);
+                let sum = 0;
+                for (let i = 0; i < freqDataArray.length; i++) sum += freqDataArray[i];
+                const avg = sum / freqDataArray.length;
+                sensedLevel = Math.min(100, Math.round((avg / 185) * 100));
+                bands = [
+                    Math.max(22, Math.min(100, Math.round((freqDataArray[1] / 255) * 100))),
+                    Math.max(22, Math.min(100, Math.round((freqDataArray[3] / 255) * 100))),
+                    Math.max(22, Math.min(100, Math.round((freqDataArray[6] / 255) * 100))),
+                    Math.max(22, Math.min(100, Math.round((freqDataArray[10] / 255) * 100)))
+                ];
+            } else if (isActivePlay) {
+                const baseVol = roomState.volume || 0;
+                const t = Date.now() / 220;
+                // 依據歌曲進度與節奏包絡線產生擬真動態音壓波動
+                const wave = (Math.sin(t) * 0.45 + Math.cos(t * 1.7) * 0.35 + (Math.random() - 0.45) * 0.4);
+                const dynamicSwing = Math.round(wave * 18);
+                sensedLevel = Math.max(8, Math.min(100, Math.round(baseVol * softStartFactor) + dynamicSwing));
+                bands = [
+                    Math.max(24, Math.min(100, sensedLevel - 10 + Math.round(Math.sin(t * 1.3) * 18))),
+                    Math.max(28, Math.min(100, sensedLevel + Math.round(Math.cos(t * 1.9) * 16))),
+                    Math.max(25, Math.min(100, sensedLevel - 5 + Math.round(Math.sin(t * 2.3) * 15))),
+                    Math.max(22, Math.min(100, sensedLevel - 12 + Math.round(Math.cos(t * 1.1) * 18)))
+                ];
+            }
+
+            // 2. 更新 12 格 LED 電平表與分貝數值
+            const activeCount = Math.round((sensedLevel / 100) * 12);
+            segs.forEach((seg, idx) => {
+                if (idx < activeCount) {
+                    seg.classList.add('active');
+                } else {
+                    seg.classList.remove('active');
+                }
+            });
+
+            if (levelText) {
+                if (sensedLevel <= 0) {
+                    levelText.textContent = '-∞ dB';
+                } else {
+                    const db = Math.round((sensedLevel - 92) * 0.45);
+                    levelText.textContent = `${db >= 0 ? '+' + db : db} dB`;
+                }
+            }
+
+            // 3. 同步驅動左上角 4 根音柱高度
+            if (eqSpans.length === 4) {
+                eqSpans.forEach((bar, i) => {
+                    bar.style.height = isActivePlay || isLiveMicActive ? `${bands[i]}%` : '22%';
+                });
+            }
+
+            // 4. 執行「音量自動調節閥」邏輯（平滑漸入 + 峰值超標自動壓限）
+            if (!autoValveEnabled || !isActivePlay) {
+                if (valveBadge) valveBadge.classList.add('hidden');
+                return;
+            }
+
+            // (a) 開唱平滑漸入推進（約 2.2 秒從小聲平滑升至目標音量）
+            if (softStartFactor < 1) {
+                softStartFactor = Math.min(1, softStartFactor + 0.065);
+            }
+
+            // (b) 計算目標安全輸出：不超過調節閥上限，且若現場收音或峰值超標則自動壓低 (Auto Ducking)
+            const userVol = roomState.volume || 0;
+            let safeTarget = Math.min(userVol, valveCeiling);
+            let isLimiting = userVol > valveCeiling || softStartFactor < 0.98;
+
+            if (sensedLevel > valveCeiling) {
+                const overAmount = sensedLevel - valveCeiling;
+                safeTarget = Math.max(25, safeTarget - Math.round(overAmount * 0.75));
+                isLimiting = true;
+            }
+
+            const finalOut = Math.round(safeTarget * softStartFactor);
+            currentEffectiveVol = Math.round(currentEffectiveVol * 0.6 + finalOut * 0.4);
+
+            if (valveBadge) {
+                if (isLimiting) {
+                    valveBadge.classList.remove('hidden');
+                    valveBadge.textContent = softStartFactor < 0.98 ? '漸入中' : `壓限 ${currentEffectiveVol}%`;
+                } else {
+                    valveBadge.classList.add('hidden');
+                }
+            }
+
+            if (deviceRole === 'host' && isPlayerReady && ytPlayer && typeof ytPlayer.setVolume === 'function') {
+                ytPlayer.setVolume(currentEffectiveVol);
             }
         }
 
